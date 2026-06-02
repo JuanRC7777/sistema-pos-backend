@@ -15,6 +15,7 @@ import com.pos.domain.exception.StockInsuficienteException;
 import com.pos.domain.service.GeneradorNumeroFactura;
 import com.pos.infrastructure.adapter.out.dynamodb.DynamoProductoRepository;
 import com.pos.infrastructure.adapter.out.dynamodb.DynamoSecuenciaRepository;
+import com.pos.infrastructure.adapter.out.dynamodb.DynamoTurnoRepository;
 import com.pos.infrastructure.adapter.out.dynamodb.DynamoVentaRepository;
 import com.pos.infrastructure.config.DynamoConfig;
 import software.amazon.awssdk.services.dynamodb.DynamoDbClient;
@@ -34,6 +35,7 @@ public class RegistrarVentaFunction implements RequestHandler<APIGatewayV2HTTPEv
             new DynamoProductoRepository(client),
             new DynamoVentaRepository(client),
             new DynamoSecuenciaRepository(client),
+            new DynamoTurnoRepository(client),
             new GeneradorNumeroFactura(),
             tasaImpuesto
         );

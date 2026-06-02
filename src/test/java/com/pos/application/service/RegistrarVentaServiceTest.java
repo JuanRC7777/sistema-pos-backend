@@ -5,6 +5,7 @@ import com.pos.application.dto.command.RegistrarVentaCommand;
 import com.pos.application.dto.response.VentaResponse;
 import com.pos.application.port.out.ProductoRepositoryPort;
 import com.pos.application.port.out.SecuenciaFacturaRepositoryPort;
+import com.pos.application.port.out.TurnoRepositoryPort;
 import com.pos.application.port.out.VentaRepositoryPort;
 import com.pos.domain.exception.ProductoNoEncontradoException;
 import com.pos.domain.exception.StockInsuficienteException;
@@ -26,6 +27,7 @@ class RegistrarVentaServiceTest {
     private ProductoRepositoryPort productoRepo;
     private VentaRepositoryPort ventaRepo;
     private SecuenciaFacturaRepositoryPort secuenciaRepo;
+    private TurnoRepositoryPort turnoRepo;
     private RegistrarVentaService service;
 
     @BeforeEach
@@ -33,9 +35,10 @@ class RegistrarVentaServiceTest {
         productoRepo = mock(ProductoRepositoryPort.class);
         ventaRepo = mock(VentaRepositoryPort.class);
         secuenciaRepo = mock(SecuenciaFacturaRepositoryPort.class);
+        turnoRepo = mock(TurnoRepositoryPort.class);
 
         service = new RegistrarVentaService(
-            productoRepo, ventaRepo, secuenciaRepo,
+            productoRepo, ventaRepo, secuenciaRepo, turnoRepo,
             new GeneradorNumeroFactura(),
             new BigDecimal("0.05")
         );

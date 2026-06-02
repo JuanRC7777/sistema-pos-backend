@@ -7,6 +7,7 @@ import com.pos.application.dto.response.VentaResponse;
 import com.pos.application.port.in.venta.RegistrarVentaUseCase;
 import com.pos.application.port.out.ProductoRepositoryPort;
 import com.pos.application.port.out.SecuenciaFacturaRepositoryPort;
+import com.pos.application.port.out.TurnoRepositoryPort;
 import com.pos.application.port.out.VentaRepositoryPort;
 import com.pos.domain.exception.ProductoNoEncontradoException;
 import com.pos.domain.exception.StockInsuficienteException;
@@ -29,6 +30,7 @@ public class RegistrarVentaService implements RegistrarVentaUseCase {
     private final ProductoRepositoryPort productoRepo;
     private final VentaRepositoryPort ventaRepo;
     private final SecuenciaFacturaRepositoryPort secuenciaRepo;
+    private final TurnoRepositoryPort turnoRepo;
     private final GeneradorNumeroFactura generadorNumeroFactura;
     private final BigDecimal tasaImpuesto;
 
@@ -36,11 +38,13 @@ public class RegistrarVentaService implements RegistrarVentaUseCase {
             ProductoRepositoryPort productoRepo,
             VentaRepositoryPort ventaRepo,
             SecuenciaFacturaRepositoryPort secuenciaRepo,
+            TurnoRepositoryPort turnoRepo,
             GeneradorNumeroFactura generadorNumeroFactura,
             BigDecimal tasaImpuesto) {
         this.productoRepo = productoRepo;
         this.ventaRepo = ventaRepo;
         this.secuenciaRepo = secuenciaRepo;
+        this.turnoRepo = turnoRepo;
         this.generadorNumeroFactura = generadorNumeroFactura;
         this.tasaImpuesto = tasaImpuesto;
     }
@@ -81,7 +85,9 @@ public class RegistrarVentaService implements RegistrarVentaUseCase {
             productoRepo.decrementarStock(producto.getId(), item.getCantidad());
         }
 
-        return ventaRepo.save(venta, detalles);
+        VentaResponse response = ventaRepo.save(venta, detalles);
+        turnoRepo.acumularVenta(venta.getMetodoPago(), venta.getTotal());
+        return response;
     }
 
     private List<DetalleVenta> construirDetalles(RegistrarVentaCommand cmd) {

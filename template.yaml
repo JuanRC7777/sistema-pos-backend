@@ -172,6 +172,34 @@ Resources:
             Path: /ventas
             Method: POST
 
+  CajaFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: pos-caja
+      Handler: com.pos.infrastructure.adapter.in.lambda.CajaFunction::handleRequest
+      Policies:
+        - DynamoDBCrudPolicy:
+            TableName: !Ref VentasTable
+      Events:
+        AbrirTurno:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref PosApi
+            Path: /caja/abrir
+            Method: POST
+        ConsultarTurno:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref PosApi
+            Path: /caja/turno-actual
+            Method: GET
+        CerrarTurno:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref PosApi
+            Path: /caja/cerrar
+            Method: POST
+
 # ─── Outputs ───────────────────────────────────────────────
 Outputs:
   ApiUrl:
