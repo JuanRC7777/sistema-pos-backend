@@ -12,14 +12,17 @@ Cliente (Postman / Frontend)
         ▼
 API Gateway HTTP API  ──→  JWT Authorizer (AWS Cognito)
         │
-        ├── POST /auth/login  ──→  AuthFunction (Lambda)
-        ├── GET  /productos   ──→  ListarProductosFunction (Lambda)
-        └── POST /ventas      ──→  RegistrarVentaFunction (Lambda)
-                                          │
-                              ┌───────────┴───────────┐
-                              ▼                       ▼
-                      DynamoDB                  DynamoDB
-                    pos-productos             pos-ventas
+        ├── POST /auth/login      ──→  AuthFunction (Lambda)
+        ├── GET  /productos        ──→  ListarProductosFunction (Lambda)
+        ├── POST /ventas           ──→  RegistrarVentaFunction (Lambda)
+        ├── POST /caja/abrir       ──→  CajaFunction (Lambda)
+        ├── GET  /caja/turno-actual──→  CajaFunction (Lambda)
+        └── POST /caja/cerrar      ──→  CajaFunction (Lambda)
+                                              │
+                              ┌───────────────┴───────────┐
+                              ▼                           ▼
+                      DynamoDB                      DynamoDB
+                    pos-productos                 pos-ventas
 ```
 
 El proyecto sigue una arquitectura **Hexagonal (Ports & Adapters)**:
@@ -46,26 +49,65 @@ El proyecto sigue una arquitectura **Hexagonal (Ports & Adapters)**:
 
 ## Endpoints
 
+### Autenticación
 | Método | Ruta | Auth | Descripción |
 |---|---|---|---|
 | POST | `/auth/login` | No | Autenticación de cajero, retorna JWT |
+
+### Productos
+| Método | Ruta | Auth | Descripción |
+|---|---|---|---|
 | GET | `/productos` | JWT | Lista todos los productos activos |
-| POST | `/ventas` | JWT | Registra una venta y genera factura |
+
+### Ventas
+| Método | Ruta | Auth | Descripción |
+|---|---|---|---|
+| POST | `/ventas` | JWT | Registra una venta y genera número de factura |
+
+### Cuadre de Caja
+| Método | Ruta | Auth | Descripción |
+|---|---|---|---|
+| POST | `/caja/abrir` | JWT | Abre turno con saldo inicial en caja |
+| GET | `/caja/turno-actual` | JWT | Consulta totales acumulados del turno activo |
+| POST | `/caja/cerrar` | JWT | Cierra turno y calcula diferencia de efectivo |
+
+---
+
+## Flujo de cuadre de caja
+
+```
+1. POST /caja/abrir      → cajero declara saldo inicial (ej. $50.00)
+        │
+        ▼
+2. POST /ventas (N veces) → ventas se acumulan automáticamente en el turno
+        │
+        ▼
+3. GET  /caja/turno-actual → consulta en tiempo real: ventas por método de pago
+        │
+        ▼
+4. POST /caja/cerrar      → cajero declara efectivo contado
+        │
+        ▼
+   Sistema calcula:
+   efectivoEsperado = saldoInicial + totalEfectivo
+   diferencia       = efectivoContado - efectivoEsperado
+   resultado        = CUADRADO | SOBRANTE | FALTANTE
+```
 
 ---
 
 ## Proceso SDD (Spec-Driven Development)
 
-Este proyecto siguió un enfoque **Spec-Driven Development**: los specs fueron escritos antes de cualquier línea de código.
+Este proyecto siguió un enfoque **Spec-Driven Development** usando **Kiro**: los specs fueron escritos antes de cualquier línea de código.
 
 El orden fue:
 
-1. **`requirements.md`** — se definieron los requisitos funcionales de cada endpoint, los datos de entrada/salida y los criterios de aceptación (incluyendo casos de error).
+1. **`requirements.md`** — se definieron los requisitos funcionales de cada endpoint, los datos de entrada/salida y los criterios de aceptación con formato EARS (WHEN/THE/IF/THEN).
 2. **`design.md`** — con los requisitos claros, se tomaron las decisiones de arquitectura: estructura de tablas DynamoDB, contratos de endpoints y definición del `template.yaml`.
-3. **`tasks.md`** — se derivó la lista de tareas de implementación en orden lógico (dominio → puertos → servicios → infraestructura → pruebas).
-4. **Implementación** — cada clase implementada corresponde a una tarea del spec. Si durante la implementación se descubrió algo no especificado, se actualizó el spec primero.
+3. **`tasks.md`** — se derivó la lista de tareas de implementación en waves (dominio → puertos → DTOs → servicios → infraestructura → despliegue).
+4. **Implementación** — cada clase corresponde a una tarea del spec. Si durante la implementación se descubrió algo no especificado, se actualizó el spec primero.
 
-Los specs se encuentran en `.kiro/specs/pos-backend/`.
+Los specs se encuentran en `.kiro/specs/`.
 
 ---
 
@@ -101,7 +143,7 @@ sam deploy
 
 Durante `sam deploy --guided` se pedirá:
 - Stack name: `sistema-pos`
-- AWS Region: `us-east-1` (o la de tu preferencia)
+- AWS Region: `us-east-1`
 - Confirm changes: `Y`
 - Allow SAM to create IAM roles: `Y`
 
@@ -110,8 +152,6 @@ Al finalizar, SAM muestra los **Outputs** con la URL base del API Gateway.
 ---
 
 ## Variables de entorno
-
-Las siguientes variables son gestionadas automáticamente por SAM:
 
 | Variable | Valor | Descripción |
 |---|---|---|
@@ -130,13 +170,16 @@ Las pruebas usan **Mockito** para aislar completamente DynamoDB:
 mvn test
 ```
 
-Coberturas:
-- `ProductoTest` — lógica de stock del dominio
-- `VentaTest` — cálculo de totales e impuestos
-- `DetalleVentaTest` — cálculo de subtotal
-- `GeneradorNumeroFacturaTest` — formato de número de factura
-- `ProductoServiceTest` — caso exitoso y lista vacía (DynamoDB mockeado)
-- `RegistrarVentaServiceTest` — venta válida, producto no encontrado, stock insuficiente, método de pago inválido, cédula inválida, cliente nulo (DynamoDB mockeado)
+**26 tests — todos en verde.**
+
+| Clase | Tests | Descripción |
+|---|---|---|
+| `ProductoTest` | 5 | Lógica de stock del dominio |
+| `VentaTest` | 4 | Cálculo de totales e impuestos |
+| `DetalleVentaTest` | 3 | Cálculo de subtotal |
+| `GeneradorNumeroFacturaTest` | 6 | Formato de número de factura |
+| `ProductoServiceTest` | 2 | Caso exitoso y lista vacía (DynamoDB mockeado) |
+| `RegistrarVentaServiceTest` | 6 | Venta válida, producto no encontrado, stock insuficiente, método de pago inválido, cédula inválida, cliente nulo (DynamoDB mockeado) |
 
 ---
 
@@ -145,25 +188,30 @@ Coberturas:
 ```
 sistema-pos/
 ├── .kiro/
-│   └── specs/
-│       └── pos-backend/
-│           ├── requirements.md
-│           ├── design.md
-│           └── tasks.md
+│   ├── specs/
+│   │   ├── requirements.md        ← spec principal del sistema POS
+│   │   ├── design.md
+│   │   ├── tasks.md
+│   │   └── cuadre-caja/           ← spec del módulo de cuadre de caja
+│   │       ├── requirements.md
+│   │       ├── design.md
+│   │       └── tasks.md
+│   └── steering/
+│       └── project.md             ← contexto global del proyecto
 ├── src/
 │   ├── main/java/com/pos/
 │   │   ├── domain/
-│   │   │   ├── model/        (Producto, Venta, DetalleVenta)
+│   │   │   ├── model/        (Producto, Venta, DetalleVenta, Turno)
 │   │   │   ├── exception/
 │   │   │   └── service/      (GeneradorNumeroFactura)
 │   │   ├── application/
-│   │   │   ├── port/in/      (use cases)
+│   │   │   ├── port/in/      (use cases — auth, producto, venta, caja)
 │   │   │   ├── port/out/     (repository ports)
-│   │   │   ├── service/      (AuthService, ProductoService, RegistrarVentaService)
+│   │   │   ├── service/      (AuthService, ProductoService, RegistrarVentaService, TurnoService)
 │   │   │   └── dto/
 │   │   └── infrastructure/
-│   │       ├── adapter/in/lambda/   (AuthFunction, ListarProductosFunction, RegistrarVentaFunction)
-│   │       ├── adapter/out/dynamodb/ (repositorios DynamoDB)
+│   │       ├── adapter/in/lambda/    (AuthFunction, ListarProductosFunction, RegistrarVentaFunction, CajaFunction)
+│   │       ├── adapter/out/dynamodb/ (DynamoProductoRepository, DynamoVentaRepository, DynamoSecuenciaRepository, DynamoTurnoRepository)
 │   │       └── config/
 │   └── test/java/com/pos/
 ├── template.yaml
