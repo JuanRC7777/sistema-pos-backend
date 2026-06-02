@@ -1,0 +1,195 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Transform: AWS::Serverless-2016-10-31
+Description: Sistema POS Serverless - Java 21
+
+Globals:
+  Function:
+    Runtime: java21
+    Timeout: 30
+    MemorySize: 512
+    SnapStart:
+      ApplyOn: PublishedVersions
+    Environment:
+      Variables:
+        TABLA_PRODUCTOS: !Ref ProductosTable
+        TABLA_VENTAS: !Ref VentasTable
+        TASA_IMPUESTO: "0.05"
+
+Resources:
+
+  # ─── Cognito ───────────────────────────────────────────────
+  PosUserPool:
+    Type: AWS::Cognito::UserPool
+    Properties:
+      UserPoolName: pos-user-pool
+      Policies:
+        PasswordPolicy:
+          MinimumLength: 8
+          RequireUppercase: true
+          RequireNumbers: true
+          RequireSymbols: false
+
+  PosUserPoolClient:
+    Type: AWS::Cognito::UserPoolClient
+    Properties:
+      UserPoolId: !Ref PosUserPool
+      ClientName: pos-client
+      ExplicitAuthFlows:
+        - ALLOW_USER_PASSWORD_AUTH
+        - ALLOW_REFRESH_TOKEN_AUTH
+      GenerateSecret: false
+
+  # ─── API Gateway ───────────────────────────────────────────
+  PosApi:
+    Type: AWS::Serverless::HttpApi
+    Properties:
+      StageName: prod
+      Auth:
+        DefaultAuthorizer: CognitoAuthorizer
+        Authorizers:
+          CognitoAuthorizer:
+            IdentitySource: $request.header.Authorization
+            JwtConfiguration:
+              issuer: !Sub https://cognito-idp.${AWS::Region}.amazonaws.com/${PosUserPool}
+              audience:
+                - !Ref PosUserPoolClient
+      CorsConfiguration:
+        AllowOrigins:
+          - "http://localhost:5173"
+          - "http://localhost:4173"
+        AllowHeaders:
+          - Content-Type
+          - Authorization
+        AllowMethods:
+          - GET
+          - POST
+          - OPTIONS
+        MaxAge: 300
+  # ─── DynamoDB: Tabla Productos ────────────────────────────
+  ProductosTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName: pos-productos
+      BillingMode: PAY_PER_REQUEST
+      KeySchema:
+        - AttributeName: PK
+          KeyType: HASH
+        - AttributeName: SK
+          KeyType: RANGE
+      AttributeDefinitions:
+        - AttributeName: PK
+          AttributeType: S
+        - AttributeName: SK
+          AttributeType: S
+        - AttributeName: activo
+          AttributeType: S
+        - AttributeName: nombre
+          AttributeType: S
+      GlobalSecondaryIndexes:
+        - IndexName: GSI1-activo-nombre
+          KeySchema:
+            - AttributeName: activo
+              KeyType: HASH
+            - AttributeName: nombre
+              KeyType: RANGE
+          Projection:
+            ProjectionType: ALL
+
+  # ─── DynamoDB: Tabla Ventas ───────────────────────────────
+  VentasTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName: pos-ventas
+      BillingMode: PAY_PER_REQUEST
+      KeySchema:
+        - AttributeName: PK
+          KeyType: HASH
+        - AttributeName: SK
+          KeyType: RANGE
+      AttributeDefinitions:
+        - AttributeName: PK
+          AttributeType: S
+        - AttributeName: SK
+          AttributeType: S
+
+  # ─── Lambda Functions ─────────────────────────────────────
+
+  AuthFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: pos-auth
+      Handler: com.pos.infrastructure.adapter.in.lambda.AuthFunction::handleRequest
+      Policies:
+        - Statement:
+            Effect: Allow
+            Action:
+              - cognito-idp:InitiateAuth
+            Resource: !GetAtt PosUserPool.Arn
+      Environment:
+        Variables:
+          COGNITO_CLIENT_ID: !Ref PosUserPoolClient
+      Events:
+        Login:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref PosApi
+            Path: /auth/login
+            Method: POST
+            Auth:
+              Authorizer: NONE
+
+  ListarProductosFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: pos-listar-productos
+      Handler: com.pos.infrastructure.adapter.in.lambda.ListarProductosFunction::handleRequest
+      Policies:
+        - DynamoDBReadPolicy:
+            TableName: !Ref ProductosTable
+      Events:
+        ListarProductos:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref PosApi
+            Path: /productos
+            Method: GET
+
+  RegistrarVentaFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: pos-registrar-venta
+      Handler: com.pos.infrastructure.adapter.in.lambda.RegistrarVentaFunction::handleRequest
+      Policies:
+        - DynamoDBCrudPolicy:
+            TableName: !Ref ProductosTable
+        - DynamoDBCrudPolicy:
+            TableName: !Ref VentasTable
+      Events:
+        RegistrarVenta:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref PosApi
+            Path: /ventas
+            Method: POST
+
+# ─── Outputs ───────────────────────────────────────────────
+Outputs:
+  ApiUrl:
+    Description: URL base de la API
+    Value: !Sub https://${PosApi}.execute-api.${AWS::Region}.amazonaws.com/prod
+
+  UserPoolId:
+    Description: ID del Cognito User Pool
+    Value: !Ref PosUserPool
+
+  UserPoolClientId:
+    Description: ID del cliente Cognito (para el login)
+    Value: !Ref PosUserPoolClient
+
+  TablaProductos:
+    Description: Nombre de la tabla de productos
+    Value: !Ref ProductosTable
+
+  TablaVentas:
+    Description: Nombre de la tabla de ventas
+    Value: !Ref VentasTable
